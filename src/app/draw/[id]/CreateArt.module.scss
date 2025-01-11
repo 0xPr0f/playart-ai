@@ -1,0 +1,45 @@
+.editCanvasbtn {
+  display: flex;
+  align-items: center;
+  gap: 1em;
+}
+.HeadMainCanvsSection {
+  position: relative;
+}
+.CanvasDraw {
+  &SettingPanel {
+    min-width: 260px;
+    height: fit-content;
+    //
+
+    .BrushProperties {
+      border-radius: 20px;
+      align-items: flex-start;
+      border: 2px solid #8860ce;
+      text-align: start;
+      display: flex;
+      flex-direction: column;
+
+      &Text {
+        border-top-left-radius: 20px;
+        border-top-right-radius: 20px;
+      }
+    }
+
+    .PageSettings {
+      margin-top: 0.3em;
+      border-radius: 20px;
+      align-items: flex-start;
+      border: 2px solid #8860ce;
+      text-align: start;
+      display: flex;
+      flex-direction: column;
+    }
+  }
+}
+
+.ExportAspect {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+}

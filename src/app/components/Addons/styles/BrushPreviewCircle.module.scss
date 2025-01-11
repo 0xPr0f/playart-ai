@@ -1,0 +1,10 @@
+.circle {
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.circleHover:hover {
+  background: linear-gradient(35deg, #8860ce, #7ecbea, #5589e9);
+  background-position: 0 0;
+  transition: 0.5s;
+}

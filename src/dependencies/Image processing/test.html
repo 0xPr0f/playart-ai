@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Generate JSON from Image</title>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <img id="image" src="./your_image.webp" style="display: none" />
+
+    <script>
+      const image = document.getElementById('image')
+      const canvas = document.getElementById('canvas')
+      const ctx = canvas.getContext('2d')
+
+      image.onload = () => {
+        canvas.width = image.width
+        canvas.height = image.height
+        ctx.drawImage(image, 0, 0)
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+        const data = imageData.data
+
+        let points = []
+        let lines = []
+        let currentLine = null
+
+        // Iterate over each pixel and extract coordinates of non-transparent pixels (assuming we have an image with transparency)
+        for (let y = 0; y < canvas.height; y++) {
+          for (let x = 0; x < canvas.width; x++) {
+            let index = (y * canvas.width + x) * 4
+            if (data[index + 3] > 0) {
+              // not transparent
+              let r = data[index]
+              let g = data[index + 1]
+              let b = data[index + 2]
+
+              // Calculate brush radius based on brightness or any other pixel property
+              let brightness = (r + g + b) / 3
+              let brushRadius = Math.max(1, Math.round(brightness / 25)) // Example: scale brightness to brush radius
+
+              // Convert RGB to hex color
+              let brushColor = `#${((1 << 24) | (r << 16) | (g << 8) | b)
+                .toString(16)
+                .slice(1)}`
+
+              if (
+                !currentLine ||
+                currentLine.brushColor !== brushColor ||
+                currentLine.brushRadius !== brushRadius
+              ) {
+                if (currentLine) lines.push(currentLine)
+                currentLine = {
+                  points: [{ x: x, y: y }],
+                  brushColor: brushColor,
+                  brushRadius: brushRadius,
+                }
+              } else {
+                currentLine.points.push({ x: x, y: y })
+              }
+            } else if (currentLine && currentLine.points.length > 0) {
+              // End of line
+              lines.push(currentLine)
+              currentLine = null
+            }
+          }
+        }
+        const jsonOutput = {
+          lines: lines,
+          width: canvas.width,
+          height: canvas.height,
+        }
+        function simplifyLine(points, tolerance) {
+          // If there are 2 or fewer points, return them all
+
+          if (points.length <= 2) return points
+
+          // Find the point with the maximum distance
+          let maxDistance = 0
+          let index = 0
+          for (let i = 1; i < points.length - 1; i++) {
+            let distance = perpendicularDistance(
+              points[i],
+              points[0],
+              points[points.length - 1]
+            )
+            if (distance > maxDistance) {
+              maxDistance = distance
+              index = i
+            }
+          }
+
+          // If the maximum distance is greater than our tolerance,
+          // recursively simplify the two parts of the line
+          if (maxDistance >= tolerance) {
+            let result = simplifyLine(points.slice(0, index + 1), tolerance)
+            result.pop() // remove the last point as it's repeated
+            result = result.concat(simplifyLine(points.slice(index), tolerance))
+            return result
+          } else {
+            // Otherwise, just return the start and end points
+            return [points[0], points[points.length - 1]]
+          }
+        }
+
+        function perpendicularDistance(point, lineStart, lineEnd) {
+          let area = Math.abs(
+            0.5 *
+              (lineStart.x * lineEnd.y +
+                lineEnd.x * point.y +
+                point.x * lineStart.y -
+                lineEnd.x * lineStart.y -
+                point.x * lineEnd.y -
+                lineStart.x * point.y)
+          )
+          let bottom = Math.hypot(
+            lineEnd.x - lineStart.x,
+            lineEnd.y - lineStart.y
+          )
+          return (area / bottom) * 2
+        }
+        function rework(Linedata) {
+          // Extract points from line data, manipulate them, and put them back
+          let newLineData = JSON.parse(JSON.stringify(Linedata)) // Deep copy to keep original data unchanged
+
+          newLineData.lines.forEach((line) => {
+            // Extract points
+            let points = line.points
+
+            // Modify points
+            let modifiedPoints = simplifyLine(points, 1.0)
+
+            // Put modified points back
+            line.points = modifiedPoints
+          })
+          return newLineData
+        }
+
+        let simplifiedPoints = rework(jsonOutput)
+
+        console.log(JSON.stringify(simplifiedPoints)) // Output the JSON
+      }
+    </script>
+  </body>
+</html>

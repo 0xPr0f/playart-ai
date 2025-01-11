@@ -1,0 +1,57 @@
+.textInputArt {
+  border-radius: 25px;
+  padding: 1em 1.5em;
+  width: 220px;
+  height: 15px;
+  font-weight: 600;
+  font-size: 20px;
+  /* Tell the input to use all the available space */
+  flex-grow: 2;
+  background-color: transparent;
+  border: none;
+}
+.formArt {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+
+  border: 2px solid black;
+  border-radius: 40px;
+  background-color: white;
+  padding: 2px;
+}
+
+.textInputArt:focus {
+  /* removing the input focus blue box. Put this on the form if you like. */
+  outline: none;
+}
+
+.textareaInputArt {
+  border-radius: 25px;
+  // border: 2px solid #609;
+  padding: 1em 1.5em;
+  font-weight: 400;
+  font-size: 20px;
+  /* Tell the input to use all the available space */
+  flex-grow: 2;
+  background-color: transparent;
+  /* And hide the input's outline, so the form looks like the outline */
+  border: none;
+}
+.formAreaArt {
+  /* This bit sets up the horizontal layout */
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+
+  border: 2px solid black;
+  border-radius: 40px;
+  background-color: white;
+  /* I've used padding so you can see the edges of the elements. */
+  padding: 2px;
+}
+
+.textareaInputArt:focus {
+  /* removing the input focus blue box. Put this on the form if you like. */
+  outline: none;
+}

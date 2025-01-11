@@ -1,0 +1,46 @@
+.Navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6em 1em 0.6em 2em;
+  width: 70%;
+  margin: auto;
+  margin-top: 1em;
+  box-sizing: border-box;
+  z-index: 1;
+  box-shadow: 0 0 #0000, 0 0 #0000, 0 2.65546px 95px rgba(0, 0, 0, 0.1);
+  border-bottom: none;
+  border-radius: 25px;
+  background-color: #8860cf;
+}
+
+.Navbar h3 {
+  margin: 0;
+}
+
+.Navbar .Links {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.51em;
+}
+
+.Navbar .Links a {
+  margin-right: 1.5em;
+  display: inline-block;
+  outline: none;
+  text-decoration: none;
+  color: #000000;
+}
+
+@media screen and (max-width: 700px) {
+  .Navbar {
+    box-shadow: none;
+    width: 100%;
+    padding: 0.5em;
+  }
+
+  .Navbar .Links a {
+    margin-right: 0.5em;
+  }
+}
