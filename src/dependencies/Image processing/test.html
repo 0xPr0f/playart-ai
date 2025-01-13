@@ -7,12 +7,47 @@
   </head>
   <body>
     <canvas id="canvas"></canvas>
-    <img id="image" src="./your_image.webp" style="display: none" />
+
+    <canvas
+      id="canvas2"
+      width="1300"
+      height="1000"
+      style="border: 1px solid black"
+    ></canvas>
+
+    <img id="image" src="./your_image2.webp" style="display: none" />
 
     <script>
       const image = document.getElementById('image')
       const canvas = document.getElementById('canvas')
       const ctx = canvas.getContext('2d')
+
+      const canvas2 = document.getElementById('canvas2')
+      const ctx2 = canvas2.getContext('2d')
+      // Function to draw the lines
+      function drawLines(data) {
+        // Clear canvas before drawing new lines
+        ctx2.clearRect(0, 0, canvas.width, canvas.height)
+
+        data.lines.forEach((line) => {
+          ctx2.beginPath() // Start a new path for each line
+          ctx2.strokeStyle = line.brushColor // Set the color
+          ctx2.lineWidth = line.brushRadius // Set the stroke width
+
+          // Check if there are points to draw
+          if (line.points && line.points.length > 0) {
+            // Move to the first point
+            ctx2.moveTo(line.points[0].x, line.points[0].y)
+
+            // Loop through remaining points and create lines
+            for (let i = 1; i < line.points.length; i++) {
+              ctx2.lineTo(line.points[i].x, line.points[i].y)
+            }
+          }
+
+          ctx2.stroke() // Apply the drawing
+        })
+      }
 
       image.onload = () => {
         canvas.width = image.width
@@ -138,7 +173,7 @@
         }
 
         let simplifiedPoints = rework(jsonOutput)
-
+        drawLines(jsonOutput)
         console.log(JSON.stringify(simplifiedPoints)) // Output the JSON
       }
     </script>

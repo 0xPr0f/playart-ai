@@ -1,8 +1,31 @@
-const React = require('react')
-const { useState, useRef, useEffect, useca } = require('react')
-const { Stage, Layer, Line, Group } = require('react-konva')
-const Konva = require('konva')
-const { dataString } = require('./base64data')
+import React, { useState, useRef, useEffect, useCallback } from 'react'
+import { Stage, Layer, Line, Group } from 'react-konva'
+import Konva from 'konva'
+import { dataString } from './base64data'
+// Custom hook for debouncing
+const useDebounce = (fn, delay) => {
+  const [timer, setTimer] = useState(null)
+
+  useEffect(() => {
+    return () => {
+      if (timer) {
+        clearTimeout(timer)
+      }
+    }
+  }, [timer])
+
+  return useCallback(
+    (...args) => {
+      if (timer) clearTimeout(timer)
+      setTimer(
+        setTimeout(() => {
+          fn(...args)
+        }, delay)
+      )
+    },
+    [fn, timer, delay]
+  )
+}
 
 const DrawApp = ({
   width,
@@ -10,27 +33,27 @@ const DrawApp = ({
   initialBrushColor,
   initialBrushSize,
   initialBrushOpacity,
+  loadedPlaybackDrawingData,
+  loadedKonvaDrawingData,
   loadedDrawingData,
   onCanvasChangeData,
+  useKonva = true,
 }) => {
   const [isDrawing, setIsDrawing] = useState(false)
   const [layers, setLayers] = useState([
-    {
-      visible: true,
-      name: 'Layer 0',
-      id: 'default-layer',
-      groups: [{ x: 0, y: 0, shapes: [] }],
-    },
+    { visible: true, groups: [{ x: 0, y: 0, shapes: [] }] },
   ])
   const [layersIndex, setLayersIndex] = useState(0)
   const [brushColor, setBrushColor] = useState(initialBrushColor || '#000000')
   const [brushSize, setBrushSize] = useState(initialBrushSize || 5)
-  const [brushOpacity, setBrushOpacity] = useState(initialBrushOpacity || 100)
-  const [tool, setTool] = useState('brush') // New state for tool selection
+  const [brushOpacity, setBrushOpacity] = useState(initialBrushOpacity || 1)
+  const [tool, setTool] = useState('brush')
   const [showGobbler, setShowGobbler] = useState(false)
-  const stageRef = useRef()
+  const stageRef = useRef(null)
   const layersRef = useRef([])
-
+  const canvasRef = useRef(null)
+  const [lines, setLines] = useState([])
+  const intervalRefs = useRef([]) // To keep track of interval IDs
   const canvasSize = { width, height }
   const dpr = window.devicePixelRatio >= 2 ? 2 : 1
 
@@ -40,10 +63,7 @@ const DrawApp = ({
       stageRef.current.height(height)
       stageRef.current.batchDraw()
     }
-    if (loadedDrawingData) {
-      importDrawingData(JSON.stringify(loadedDrawingData))
-    }
-  }, [width, height, loadedDrawingData, importDrawingData])
+  }, [width, height])
 
   useEffect(() => {
     setBrushColor(initialBrushColor)
@@ -51,6 +71,7 @@ const DrawApp = ({
     setBrushSize(initialBrushSize)
   }, [initialBrushColor, initialBrushSize, initialBrushOpacity])
 
+  // Helper function to get the correct position for drawing
   const getPositionedStage = (target) => {
     const stage = target.getStage()
     const oldScale = stage.scale() || { x: 1, y: 1 }
@@ -61,6 +82,9 @@ const DrawApp = ({
     return pos
   }
 
+  // Function to start drawing a new line
+
+  // Function to add a new line
   const addNewLine = (target) => {
     setIsDrawing(true)
     const pos = getPositionedStage(target)
@@ -68,8 +92,8 @@ const DrawApp = ({
     const newLine = {
       type: 'line',
       points: [pos.x, pos.y],
-      tool: tool, // Use the current tool
-      color: tool === 'eraser' ? 'transparent' : brushColor, // If eraser, set color to transparent
+      tool: tool,
+      color: tool === 'eraser' ? 'transparent' : brushColor,
       size: brushSize,
       opacity: brushOpacity / 100,
       hardness: 1,
@@ -87,6 +111,7 @@ const DrawApp = ({
     setLayers(newLayers)
   }
 
+  // Function to continue drawing the current line
   const continueDrawingLine = (target) => {
     const pos = getPositionedStage(target)
     if (!layers[layersIndex].groups[0]) return
@@ -104,16 +129,15 @@ const DrawApp = ({
     newLayers[layersIndex] = { ...newLayers[layersIndex], groups: newGroups }
     setLayers(newLayers)
   }
-  /*
+
+  // Function to import drawing data for immediate rendering
   const importDrawingData = (data) => {
     try {
       const drawingData = JSON.parse(data)
-      // Validate the structure of the imported data
       if (!drawingData.lines || !Array.isArray(drawingData.lines)) {
         throw new Error('Invalid drawing data format')
       }
 
-      // Convert the imported data back into our internal format
       const newShapes = drawingData.lines.map((line) => ({
         type: 'line',
         points: line.points.reduce((acc, point) => {
@@ -129,7 +153,6 @@ const DrawApp = ({
         dpr: dpr,
       }))
 
-      // Update the state with the new shapes
       const newLayers = [...layers]
       newLayers[layersIndex] = {
         ...newLayers[layersIndex],
@@ -138,70 +161,292 @@ const DrawApp = ({
       setLayers(newLayers)
     } catch (error) {
       console.error('Error importing drawing data:', error)
-      // Optionally, you could show an error message to the user here
     }
-  } */
-  const importDrawingData = useCallback(
-    (data) => {
+  }
+  const debouncedSetLayers = useDebounce(setLayers, 16) // Debounce by 16ms, matching our frame update rate
+  const [isPlaybackFinished, setIsPlaybackFinished] = useState(false)
+  const importKonvaPlaybackDrawingData = useCallback(
+    (data, speedMultiplier = 1) => {
       try {
         const drawingData = JSON.parse(data)
-        // Validate the structure of the imported data
         if (!drawingData.lines || !Array.isArray(drawingData.lines)) {
           throw new Error('Invalid drawing data format')
         }
 
-        // Convert the imported data back into our internal format
-        const newShapes = drawingData.lines.map((line) => ({
-          type: 'line',
-          points: [], // Initialize with empty points array
-          tool: 'brush',
-          color: line.brushColor,
-          size: line.brushRadius * 2,
-          opacity: line.opacity,
-          hardness: 1,
-          canvasSize: { width: drawingData.width, height: drawingData.height },
-          dpr: dpr,
-        }))
+        // Find the bounding box of the drawing
+        let minX = Infinity,
+          maxX = -Infinity,
+          minY = Infinity,
+          maxY = -Infinity
+        drawingData.lines.forEach((line) => {
+          line.points.forEach((point) => {
+            minX = Math.min(minX, point.x)
+            maxX = Math.max(maxX, point.x)
+            minY = Math.min(minY, point.y)
+            maxY = Math.max(maxY, point.y)
+          })
+        })
 
-        const newLayers = [...layers]
-        newLayers[layersIndex] = {
-          ...newLayers[layersIndex],
-          groups: [{ x: 0, y: 0, shapes: newShapes }],
+        // Calculate width and height of the drawing
+        const drawingWidth = maxX - minX
+        const drawingHeight = maxY - minY
+
+        // Calculate scaling factors
+        const scaleX = width / drawingWidth
+        const scaleY = height / drawingHeight
+
+        // Use the smaller scale to ensure the entire drawing fits
+        const scale = Math.min(scaleX, scaleY)
+
+        // Scale the drawing data
+        const scaledDrawingData = {
+          ...drawingData,
+          lines: drawingData.lines.map((line) => ({
+            ...line,
+            points: line.points.map((point) => ({
+              x: (point.x - minX) * scale,
+              y: (point.y - minY) * scale,
+            })),
+          })),
         }
 
-        setLayers(newLayers)
+        const totalPoints = scaledDrawingData.lines.reduce(
+          (sum, line) => sum + line.points.length,
+          0
+        )
+        let processedPoints = 0
+        const batchSize = 50 / speedMultiplier // Example: 50 for balance, adjust as needed
 
-        // Simulate drawing by gradually adding points
-        drawingData.lines.forEach((line, lineIndex) => {
+        // Update the state with the scaled shapes
+        setLayers((prevLayers) => {
+          const newShapes = scaledDrawingData.lines.map((line) => ({
+            type: 'line',
+            points: [],
+            tool: line.tool,
+            color: line.tool === 'eraser' ? 'transparent' : line.brushColor,
+            size: line.brushRadius * 2 * scale, // Scale brush size according to the drawing's scale
+            opacity: line.opacity,
+            hardness: line.hardness,
+            canvasSize: { width: width, height: height },
+            dpr: dpr,
+          }))
+
+          const newLayers = [...prevLayers]
+          newLayers[layersIndex] = {
+            ...newLayers[layersIndex],
+            groups: [{ x: 0, y: 0, shapes: newShapes }],
+          }
+          return newLayers
+        })
+
+        // Function to draw a single line
+        const drawLine = (lineIndex) => {
           let pointIndex = 0
-          const interval = setInterval(() => {
-            if (pointIndex < line.points.length) {
-              // Add two points at a time since each point is represented by x and y
+
+          const drawFrame = () => {
+            // Update the state with new points
+            setLayers((prevLayers) => {
+              const newLayers = [...prevLayers]
               const currentShape =
                 newLayers[layersIndex].groups[0].shapes[lineIndex]
-              currentShape.points = [
-                ...currentShape.points,
-                line.points[pointIndex].x,
-                line.points[pointIndex].y,
-              ]
-              pointIndex++
 
-              // Update the state
-              setLayers([...newLayers])
+              // Draw in batches
+              const newPoints = []
+              for (
+                let i = 0;
+                i < batchSize &&
+                pointIndex < scaledDrawingData.lines[lineIndex].points.length;
+                i++
+              ) {
+                const point =
+                  scaledDrawingData.lines[lineIndex].points[pointIndex]
+                newPoints.push(point.x, point.y)
+                pointIndex++
+                processedPoints++
+              }
+              currentShape.points = [...currentShape.points, ...newPoints]
 
-              // If we reach the end of the points, clear the interval
+              return newLayers
+            })
+
+            // Log progress
+            const progressPercent = Math.round(
+              (processedPoints / totalPoints) * 100
+            )
+            console.log(`Progress: ${progressPercent}%`)
+
+            // Continue drawing if there are more points in the current line
+            if (pointIndex < scaledDrawingData.lines[lineIndex].points.length) {
+              // Control frame rate with speedMultiplier
+              setTimeout(
+                () => requestAnimationFrame(drawFrame),
+                16 / speedMultiplier
+              )
+            } else if (lineIndex < scaledDrawingData.lines.length - 1) {
+              // If there's another line, start drawing it
+              requestAnimationFrame(() => drawLine(lineIndex + 1))
             } else {
-              clearInterval(interval)
+              // Log completion when the last line is finished
+              console.log('Drawing complete. Progress: 100%')
+              setIsPlaybackFinished(true)
             }
-          }, 10) // Adjust this value to control the speed of the drawing simulation
-        })
+          }
+
+          requestAnimationFrame(drawFrame)
+        }
+
+        // Start drawing with the first line
+        if (scaledDrawingData.lines.length > 0) {
+          drawLine(0)
+        } else {
+          console.log('No lines to draw')
+          setIsPlaybackFinished(true)
+        }
       } catch (error) {
-        console.error('Error importing drawing data:', error)
-        // Optionally, you could show an error message to the user here
+        console.error('Error importing playback drawing data:', error)
       }
     },
-    [layers, layersIndex, dpr]
+    [width, height, setLayers, layersIndex, dpr, setIsPlaybackFinished]
   )
+
+  const importPlaybackDrawingData = useCallback(
+    (data, speedMultiplier = 0.5) => {
+      try {
+        const drawingData = JSON.parse(data)
+        if (!drawingData.lines || !Array.isArray(drawingData.lines)) {
+          throw new Error('Invalid drawing data format')
+        }
+
+        const totalPoints = drawingData.lines.reduce(
+          (sum, line) => sum + line.points.length,
+          0
+        )
+        let processedPoints = 0
+        // Adjust batchSize for quality and speed. Lower for better quality, higher for speed.
+        const batchSize = 50 / speedMultiplier // Example: 50 for balance, adjust as needed
+
+        const canvas = canvasRef.current
+        if (!canvas) {
+          console.error('Canvas not found')
+          return
+        }
+
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          console.error('Canvas context not available')
+          return
+        }
+
+        // Clear canvas before drawing
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+        // Ensure high-quality rendering
+        ctx.imageSmoothingEnabled = true
+        // Improve line quality
+        ctx.lineJoin = 'round'
+        ctx.lineCap = 'round'
+
+        // Function to draw a single line
+        const drawLine = (line, lineIndex) => {
+          let pointIndex = 0
+
+          const drawFrame = () => {
+            ctx.beginPath()
+            ctx.lineWidth = line.brushRadius * 2
+            ctx.strokeStyle = line.brushColor
+            ctx.globalAlpha = line.opacity
+
+            // Start from the first point of the line
+            if (pointIndex === 0) {
+              ctx.moveTo(line.points[pointIndex].x, line.points[pointIndex].y)
+              pointIndex++
+              processedPoints++
+            }
+
+            // Draw in batches
+            for (
+              let i = 0;
+              i < batchSize && pointIndex < line.points.length;
+              i++
+            ) {
+              ctx.lineTo(line.points[pointIndex].x, line.points[pointIndex].y)
+              pointIndex++
+              processedPoints++
+            }
+
+            ctx.stroke() // Draw the batched line
+
+            // Log progress
+            const progressPercent = Math.round(
+              (processedPoints / totalPoints) * 100
+            )
+            console.log(`Progress: ${progressPercent}%`)
+
+            // Continue drawing if there are more points in the current line
+            if (pointIndex < line.points.length) {
+              // Control frame rate with speedMultiplier
+              setTimeout(
+                () => requestAnimationFrame(drawFrame),
+                16 / speedMultiplier
+              )
+            } else if (lineIndex < drawingData.lines.length - 1) {
+              // If there's another line, start drawing it
+              requestAnimationFrame(() =>
+                drawLine(drawingData.lines[lineIndex + 1], lineIndex + 1)
+              )
+            } else {
+              // Log completion when the last line is finished
+              console.log('Drawing complete. Progress: 100%')
+              setIsPlaybackFinished(true)
+            }
+          }
+
+          requestAnimationFrame(drawFrame)
+        }
+
+        // Start drawing with the first line
+        if (drawingData.lines.length > 0) {
+          drawLine(drawingData.lines[0], 0)
+        } else {
+          console.log('No lines to draw')
+          setIsPlaybackFinished(true)
+        }
+      } catch (error) {
+        console.error('Error importing playback drawing data:', error)
+      }
+    },
+    [setIsPlaybackFinished]
+  )
+
+  useEffect(() => {
+    if (loadedPlaybackDrawingData) {
+      importPlaybackDrawingData(JSON.stringify(loadedPlaybackDrawingData))
+    } else {
+      setIsPlaybackFinished(true) // If no playback data, we're ready to draw
+    }
+  }, [loadedPlaybackDrawingData, importPlaybackDrawingData])
+
+  useEffect(() => {
+    if (isPlaybackFinished) {
+      console.log('Canvas is now ready for new drawings.')
+    }
+  }, [isPlaybackFinished])
+  useEffect(() => {
+    if (loadedKonvaDrawingData) {
+      importKonvaPlaybackDrawingData(JSON.stringify(loadedKonvaDrawingData), 1) // Normal speed
+    } else {
+      setIsPlaybackFinished(true) // If no playback data, we're ready to draw
+    }
+  }, [loadedKonvaDrawingData, importKonvaPlaybackDrawingData])
+
+  // UseEffect for loading regular drawing data
+  useEffect(() => {
+    if (loadedDrawingData) {
+      importDrawingData(JSON.stringify(loadedDrawingData))
+    }
+  }, [loadedDrawingData])
+
+  // Exporting drawing data
   const exportDrawingData = useCallback(() => {
     const lines = layers[layersIndex].groups[0].shapes.map((shape) => ({
       points: shape.points.reduce((acc, point, index) => {
@@ -215,7 +460,6 @@ const DrawApp = ({
       opacity: shape.opacity,
     }))
 
-    // Construct the object to be exported
     return {
       lines: lines,
       width: canvasSize.width,
@@ -223,50 +467,59 @@ const DrawApp = ({
     }
   }, [layers, layersIndex, canvasSize])
 
+  // UseEffect for exporting drawing data when it changes
   useEffect(() => {
     if (onCanvasChangeData) {
       onCanvasChangeData(exportDrawingData())
     }
   }, [layers, onCanvasChangeData, exportDrawingData])
 
-  const handleMouseDown = ({ target }) => {
-    addNewLine(target)
-  }
+  // Event handlers
+  const handleMouseDown = (e) => {
+    // Prevent the context menu from appearing on right click
+    e.evt.preventDefault()
 
-  const handleMouseMove = ({ target }) => {
-    if (isDrawing) {
-      continueDrawingLine(target)
+    if (isPlaybackFinished) {
+      // Check if it's a right click
+      if (e.evt.button === 2) {
+        setIsDrawing(true)
+        addNewLine(e.target)
+      }
     }
   }
 
-  const handleMouseUp = () => {
+  const handleMouseMove = (e) => {
+    if (isPlaybackFinished && isDrawing) {
+      continueDrawingLine(e.target)
+    }
+  }
+
+  const handleMouseUp = (e) => {
+    // Prevent the context menu from appearing on right click
+    e.evt.preventDefault()
+
     if (isDrawing) {
       setIsDrawing(false)
+      // Optionally, you can add logic here to finalize the line or perform other actions on mouse up
     }
   }
 
-  const changeLayer = (index) => {
-    setLayersIndex(index)
-  }
+  // UI interaction functions
+  const changeLayer = (index) => setLayersIndex(index)
+  const toggleGobbler = () => setShowGobbler(!showGobbler)
+  const toggleTool = () => setTool(tool === 'brush' ? 'eraser' : 'brush')
 
-  const toggleGobbler = () => {
-    setShowGobbler(!showGobbler)
-  }
-
-  const toggleTool = () => {
-    setTool(tool === 'brush' ? 'eraser' : 'brush')
-  }
-
+  // Render method
   return (
-    <>
-      <div
-        style={{
-          display: 'flex',
-          width: '100%',
-          justifyContent: 'space-between',
-          marginTop: '20px',
-        }}
-      >
+    <div
+      style={{
+        display: 'flex',
+        width: '100%',
+        justifyContent: 'space-between',
+        marginTop: '20px',
+      }}
+    >
+      {useKonva ? (
         <main
           style={{
             flexGrow: 1,
@@ -282,10 +535,11 @@ const DrawApp = ({
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
+            onContextMenu={(e) => e.evt.preventDefault()}
             style={{
               cursor: 'crosshair',
               border: '2px solid #000',
-              backgroundImage: `url(data:image/png;base64,${dataString})`, // Updated transparent grid pattern
+              backgroundImage: `url(data:image/png;base64,${dataString})`,
               backgroundSize: '350px 350px',
               borderRadius: '10px',
             }}
@@ -320,9 +574,23 @@ const DrawApp = ({
             ))}
           </Stage>
         </main>
-      </div>
-    </>
+      ) : (
+        <div>
+          <canvas
+            ref={canvasRef}
+            width={width}
+            height={height}
+            style={{
+              border: '2px solid #000',
+              backgroundImage: `url(data:image/png;base64,${dataString})`,
+              backgroundSize: '350px 350px',
+              borderRadius: '10px',
+            }}
+          />
+        </div>
+      )}
+    </div>
   )
 }
 
-module.exports = DrawApp
+export default DrawApp

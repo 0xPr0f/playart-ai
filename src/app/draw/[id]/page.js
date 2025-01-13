@@ -4,8 +4,6 @@ import { useRouter } from 'next/navigation'
 import styles from './CreateArt.module.scss'
 import { Back, Paint } from '@icon-park/react'
 import { useAccount } from 'wagmi'
-import CanvasDraw from 'react-canvas-draw'
-
 import {
   UilEye,
   UilEyeSlash,
@@ -35,16 +33,15 @@ import { PrettoSlider } from '@/app/components/Addons/Slider'
 import { FormControlLabel } from '@mui/material'
 import { MaterialUISwitch } from '@/app/components/Addons/SwitchButton'
 
-import data from './dump'
 //import DrawApp from '@/app/components/drawing/canvas'
 import dynamic from 'next/dynamic'
-import { dataString, testData } from '@/app/components/drawing/base64data'
+import { testData } from '@/app/components/drawing/base64data'
 
 const LazyLoadedDrawApp = dynamic(
   () => import('@/app/components/drawing/canvas'),
   {
     ssr: false,
-    loading: (props) => <div tabIndex={0}></div>,
+    loading: () => <div tabIndex={0}></div>,
   }
 )
 
@@ -66,8 +63,10 @@ export const CreateArt = () => {
   const [isSaving, setIsSaving] = useState('')
   const [progress, setProgress] = useState(0)
   const [artData, setArtData] = useState([])
+  const [pointsData, setPointData] = useState()
   const [showPreviewAndHideModal, setShowPreviewAndHideModal] = useState(false)
-
+  const colorPaletteRef = useRef(null)
+  const triggerRef = useRef(null)
   const saveableCanvas = useRef('')
   const { id } = useParams()
 
@@ -75,150 +74,32 @@ export const CreateArt = () => {
     setSavedData(saveableCanvas?.current?.getSaveData())
     setArtUrlData(saveableCanvas?.current?.getDataURL())
   }
+  useEffect(() => {
+    setPointData(testData)
+  }, [testData])
 
-  function base64ToImage(base64String) {
-    return new Promise((resolve) => {
-      let img = new window.Image()
-      img.onload = () => resolve(img)
-      img.src = base64String
-    })
-  }
-
-  async function imageToLinesSchema(base64String) {
-    let img = await base64ToImage(base64String)
-    let canvas = document.createElement('canvas')
-    canvas.width = img.width
-    canvas.height = img.height
-    let ctx = canvas.getContext('2d')
-    ctx.drawImage(img, 0, 0)
-
-    // Get image data
-    let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    let data = imageData.data
-
-    let lines = []
-    let currentLine = null
-    for (let y = 0; y < img.height; y++) {
-      for (let x = 0; x < img.width; x++) {
-        let index = (y * img.width + x) * 4
-        if (data[index + 3] > 0) {
-          // not transparent
-          let r = data[index]
-          let g = data[index + 1]
-          let b = data[index + 2]
-
-          // Calculate brush radius based on brightness or any other pixel property
-          let brightness = (r + g + b) / 3
-          let brushRadius = Math.max(1, Math.round(brightness / 25)) // Example: scale brightness to brush radius
-
-          // Convert RGB to hex color
-          let brushColor = `#${((1 << 24) | (r << 16) | (g << 8) | b)
-            .toString(16)
-            .slice(1)}`
-
-          if (
-            !currentLine ||
-            currentLine.brushColor !== brushColor ||
-            currentLine.brushRadius !== brushRadius
-          ) {
-            if (currentLine) lines.push(currentLine)
-            currentLine = {
-              points: [{ x: x, y: y }],
-              brushColor: brushColor,
-              brushRadius: brushRadius,
-            }
-          } else {
-            currentLine.points.push({ x: x, y: y })
-          }
-        } else if (currentLine && currentLine.points.length > 0) {
-          // End of line
-          lines.push(currentLine)
-          currentLine = null
-        }
-      }
-    }
-    return {
-      lines: lines,
-      width: canvas.width,
-      height: canvas.height,
-    }
-  }
-
-  function simplifyLine(points, tolerance) {
-    // If there are 2 or fewer points, return them all
-
-    if (points.length <= 2) return points
-
-    // Find the point with the maximum distance
-    let maxDistance = 0
-    let index = 0
-    for (let i = 1; i < points.length - 1; i++) {
-      let distance = perpendicularDistance(
-        points[i],
-        points[0],
-        points[points.length - 1]
-      )
-      if (distance > maxDistance) {
-        maxDistance = distance
-        index = i
+  // Effect to handle outside clicks
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        showColorPalette &&
+        colorPaletteRef.current &&
+        !colorPaletteRef.current.contains(event.target) &&
+        triggerRef.current &&
+        !triggerRef.current.contains(event.target)
+      ) {
+        setShowColorPalette(false)
       }
     }
 
-    // If the maximum distance is greater than our tolerance,
-    // recursively simplify the two parts of the line
-    if (maxDistance >= tolerance) {
-      let result = simplifyLine(points.slice(0, index + 1), tolerance)
-      result.pop() // remove the last point as it's repeated
-      result = result.concat(simplifyLine(points.slice(index), tolerance))
-      return result
-    } else {
-      // Otherwise, just return the start and end points
-      return [points[0], points[points.length - 1]]
+    // Add when the palette is shown
+    document.addEventListener('mousedown', handleClickOutside)
+
+    // Clean up
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
     }
-  }
-
-  function perpendicularDistance(point, lineStart, lineEnd) {
-    let area = Math.abs(
-      0.5 *
-        (lineStart.x * lineEnd.y +
-          lineEnd.x * point.y +
-          point.x * lineStart.y -
-          lineEnd.x * lineStart.y -
-          point.x * lineEnd.y -
-          lineStart.x * point.y)
-    )
-    let bottom = Math.hypot(lineEnd.x - lineStart.x, lineEnd.y - lineStart.y)
-    return (area / bottom) * 2
-  }
-
-  function rework(lineScheme) {
-    // Extract points from line data, manipulate them, and put them back
-    let newLineData = JSON.parse(JSON.stringify(lineScheme)) // Deep copy to keep original data unchanged
-
-    newLineData.lines.forEach((line) => {
-      // Extract points
-      let points = line.points
-
-      // Modify points
-      let modifiedPoints = simplifyLine(points, 1.0)
-
-      // Put modified points back
-      line.points = modifiedPoints
-    })
-    return newLineData
-  }
-
-  const loaddata = (dataInput) => {
-    console.log('clicked')
-    imageToLinesSchema(dataInput).then((result) => {
-      let simplifiedPoints = rework(result)
-      return JSON.stringify(simplifiedPoints, null, 0)
-    })
-  }
-  const handleChange = (data) => {
-    console.log('Drawing data changed:', JSON.stringify(data))
-    // Here you can do whatever you want with the changed data
-  }
+  }, [showColorPalette])
 
   return (
     <div>
@@ -278,8 +159,7 @@ export const CreateArt = () => {
               </RoundButtonTools>
               <RoundButtonTools
                 onClick={() => {
-                  console.log(saveableCanvas.current?.getDataURL())
-
+                  load()
                   console.log('download the image')
                 }}
               >
@@ -344,46 +224,19 @@ export const CreateArt = () => {
               style={{ margin: showNavbar ? '.7em 0em' : '2.5em 0em' }}
               className={styles.CanvasDraw}
             >
-              {/*}
-              <CanvasDraw
-                ref={(canvasDraw) => {
-                  saveableCanvas.current = canvasDraw
-                }}
-                style={{ borderRadius: '20px' }}
-                canvasWidth={810}
-                canvasHeight={810}
-                brushRadius={brushRadius}
-                immediateLoading={true}
-                lazyRadius={lazyRadius}
-                brushColor={brushColor}
-                // saveData={}
-                onChange={() => {
-                  setSavedData(saveableCanvas.current?.getSaveData())
-                  setArtUrlData(saveableCanvas.current?.getDataURL())
-                  /*
-                  debounceSaveData(
-                    showNavbar,
-                    showColorPalette,
-                    brushColor,
-                    brushRadius,
-                    lazyRadius,
-                    allowPublicEdit,
-                    allowPublicMint,
-                    artName,
-                    creator
-                  ) */
-              /* }}
-              /> */}
               <LazyLoadedDrawApp
                 width={810}
                 height={810}
                 initialBrushColor={brushColor}
                 initialBrushSize={brushRadius}
                 initialBrushOpacity={brushOpacity}
-                loadedDrawingData={testData}
-                // onCanvasChangeData={handleChange}
+                //loadedKonvaDrawingData={pointsData}
+                //loadedDrawingData={pointsData}
+                //loadedPlaybackDrawingData={pointsData}
+                //useKonva={false}
               />
             </div>
+
             <div className={styles.CanvasDrawSettingPanel}>
               {/*//////****    BRUSH PROPS    */}
               <div className={styles.BrushProperties}>
@@ -406,6 +259,7 @@ export const CreateArt = () => {
                   <div style={{ width: '100%', padding: '1em 1em' }}>
                     {showColorPalette && (
                       <div
+                        ref={colorPaletteRef}
                         style={{
                           marginTop: '.3em',
                           position: 'absolute',
@@ -444,6 +298,7 @@ export const CreateArt = () => {
                       Brush color
                     </span>
                     <div
+                      ref={triggerRef}
                       style={{
                         borderRadius: '10px',
                         margin: '0.4em 0.7em',
@@ -452,11 +307,7 @@ export const CreateArt = () => {
                         border: '1px solid black',
                         cursor: 'pointer',
                       }}
-                      onClick={() =>
-                        !showColorPalette
-                          ? setShowColorPalette(true)
-                          : setShowColorPalette(false)
-                      }
+                      onClick={() => setShowColorPalette(!showColorPalette)}
                     >
                       <div
                         style={{
@@ -518,7 +369,7 @@ export const CreateArt = () => {
                         }}
                       >
                         <span style={{ fontSize: '15px', userSelect: 'none' }}>
-                          Lazy radius
+                          Opacity
                         </span>
                         <span style={{ fontWeight: '600', fontSize: '15px' }}>
                           {brushOpacity}
